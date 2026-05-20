@@ -8,67 +8,122 @@ import numpy as np
 from PIL import Image
 import io
 import re
+import configparser
+from pathlib import Path
 
+# Find the local folder and set the filename for the config file.
+cpath = Path(__file__).parent.resolve()
+conffile = cpath / "ranbooru.conf"
 
-POST_AMOUNT = 100
+#Define the config parser process
+rbconf = configparser.ConfigParser()
 
+# check for the file and create if missing
+if conffile.exists():
+    print("Ranbooru: Conf file found!")
+else:  
+    rbconf['DEFAULT'] = { 'gelbooru_id': '',
+                          'gelbooru_key': '',
+                          'rule34_id': '',
+                          'rule34_key': '',
+                          'safebooru_id': '',
+                          'safebooru_key': '',
+                          'danbooru_id': '',
+                          'danbooru_key': '',
+                          'konachan_id': '',
+                          'konachan_key': '',
+                          'yande.re_id': '',
+                          'yande.re_key': '',
+                          'aibooru_id': '',
+                          'aibooru_key': '',
+                          'xbooru_id': '',
+                          'xbooru_key': '',
+                          'e621_id': '',
+                          'e621_key': ''}
+    rbconf['UserKeys'] = {}
+    with open(conffile, 'w') as configfile:
+        rbconf.write(configfile)
+    print ("Ranbooru: Conf file created. Please update with your API information!")
+
+#Read the config file in and set the group
+rbconf.read(conffile)
+userkeys = rbconf['UserKeys']
+
+#Start a http requests session and set the user-agent string
+sess = requests.Session()
+head_string = {"user-agent": "comfyui-ranbooru/0.0.0"}
+sess.headers.update(head_string)
+
+# define a function to create a random number based on the seed value
+def random_num(min, max, seed):
+    random.seed(seed)
+    return random.randint(min, max)
 
 def pil2tensor(image):
     return torch.from_numpy(np.array(image).astype(np.float32) / 255.0).unsqueeze(0)
 
-
-class Booru:
+class Booru():
     def __init__(self, booru, booru_url):
         self.booru = booru
         self.booru_url = booru_url
-        self.headers = {"user-agent": "my-app/0.0.1"}
 
-    def get_data(self, add_tags, max_pages, id=""):
+    def get_data(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
         pass
 
-    def get_post(self, add_tags, max_pages, id=""):
+    def get_post(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
         pass
-
 
 class Gelbooru(Booru):
     def __init__(self, fringe_benefits=True):
+        APIKEY=userkeys.get('gelbooru_key', '')
+        APIID=userkeys.get('gelbooru_id', '')
         super().__init__(
             "gelbooru",
-            f"https://gelbooru.com/index.php?page=dapi&s=post&q=index&json=1&limit={POST_AMOUNT}",
+            f"https://gelbooru.com/index.php?api_key={APIKEY}&user_id={APIID}&page=dapi&s=post&q=index&json=1",
         )
         self.fringeBenefits = fringe_benefits
 
-    def get_data(self, add_tags, max_pages, id=""):
+    def get_data(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
         if id:
             add_tags = ""
+
         self.booru_url = (
-            f"{self.booru_url}&pid={random.randint(0,max_pages)}{id}{add_tags}"
+            f"{self.booru_url}&limit={posts_per_page}&pid={rpage}{id}{add_tags}"
         )
+
+        # Troubleshooting line to check the URL being requested
+        #print(self.booru_url)
+
         if self.fringeBenefits:
-            res = requests.get(self.booru_url, cookies={"fringeBenefits": "yup"})
+            res = sess.get(self.booru_url, cookies={"fringeBenefits": "yup"})
         else:
-            res = requests.get(self.booru_url)
+            res = sess.get(self.booru_url)
         data = res.json()
         return data
 
-    def get_post(self, add_tags, max_pages, id=""):
-        return self.get_data(add_tags, max_pages, "&id=" + id)
-
+    def get_post(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
+        return self.get_data(add_tags, max_pages, posts_per_page, 0, seed, "&id=" + id)
 
 class XBooru(Booru):
     def __init__(self):
+        APIKEY=userkeys.get('xbooru_key', '')
+        APIID=userkeys.get('xbooru_id', '')
         super().__init__(
             "xbooru",
-            f"https://xbooru.com/index.php?page=dapi&s=post&q=index&json=1&limit={POST_AMOUNT}",
+            f"https://xbooru.com/index.php?api_key={APIKEY}&user_id={APIID}&page=dapi&s=post&q=index&json=1",
         )
 
-    def get_data(self, add_tags, max_pages, id=""):
+    def get_data(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
         if id:
             add_tags = ""
         self.booru_url = (
-            f"{self.booru_url}&pid={random.randint(0,max_pages)}{id}{add_tags}"
+            f"{self.booru_url}&limit={posts_per_page}&pid={rpage}{id}{add_tags}"
         )
-        res = requests.get(self.booru_url)
+
+        # Troubleshooting line to check the URL being requested
+        #print(self.booru_url)
+
+        res = sess.get(self.booru_url)
         data = res.json()
         for post in data:
             post["file_url"] = (
@@ -76,45 +131,55 @@ class XBooru(Booru):
             )
         return {"post": data}
 
-    def get_post(self, add_tags, max_pages, id=""):
-        return self.get_data(add_tags, max_pages, "&id=" + id)
-
+    def get_post(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
+        return self.get_data(add_tags, max_pages, posts_per_page, 0, seed, "&id=" + id)
 
 class Rule34(Booru):
     def __init__(self):
+        APIKEY=userkeys.get('rule34_key', '')
+        APIID=userkeys.get('rule34_id', '')
         super().__init__(
             "rule34",
-            f"https://api.rule34.xxx/index.php?page=dapi&s=post&q=index&json=1&limit={POST_AMOUNT}",
+            f"https://api.rule34.xxx/index.php?api_key={APIKEY}&user_id={APIID}&page=dapi&s=post&q=index&json=1",
         )
 
-    def get_data(self, add_tags, max_pages, id=""):
+    def get_data(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
         if id:
             add_tags = ""
         self.booru_url = (
-            f"{self.booru_url}&pid={random.randint(0,max_pages)}{id}{add_tags}"
+            f"{self.booru_url}&limit={posts_per_page}&pid={rpage}{id}{add_tags}"
         )
-        res = requests.get(self.booru_url)
+
+        # Troubleshooting line to check the URL being requested
+        #print(self.booru_url)
+
+        res = sess.get(self.booru_url)
         data = res.json()
         return {"post": data}
 
-    def get_post(self, add_tags, max_pages, id=""):
-        return self.get_data(add_tags, max_pages, "&id=" + id)
-
+    def get_post(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
+        return self.get_data(add_tags, max_pages, posts_per_page, 0, seed, "&id=" + id)
 
 class Safebooru(Booru):
     def __init__(self):
+        APIKEY=userkeys.get('safebooru_key', '')
+        APIID=userkeys.get('safebooru_id', '')
         super().__init__(
             "safebooru",
-            f"https://safebooru.org/index.php?page=dapi&s=post&q=index&json=1&limit={POST_AMOUNT}",
+            f"https://safebooru.org/index.php?api_key={APIKEY}&user_id={APIID}&page=dapi&s=post&q=index&json=1",
         )
 
-    def get_data(self, add_tags, max_pages, id=""):
+    def get_data(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
         if id:
             add_tags = ""
         self.booru_url = (
-            f"{self.booru_url}&pid={random.randint(0,max_pages)}{id}{add_tags}"
+            f"{self.booru_url}&limit={posts_per_page}&pid={rpage}{id}{add_tags}"
         )
-        res = requests.get(self.booru_url)
+
+        # Troubleshooting line to check the URL being requested
+        #print(self.booru_url) 
+       
+        res = sess.get(self.booru_url)
         data = res.json()
         for post in data:
             post["file_url"] = (
@@ -122,109 +187,133 @@ class Safebooru(Booru):
             )
         return {"post": data}
 
-    def get_post(self, add_tags, max_pages, id=""):
-        return self.get_data(add_tags, max_pages, "&id=" + id)
-
+    def get_post(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
+        return self.get_data(add_tags, max_pages, posts_per_page, 0, seed, "&id=" + id)
 
 class Konachan(Booru):
     def __init__(self):
+        APIKEY=userkeys.get('konachan_key', '')
+        APIID=userkeys.get('konochan_id', '')
         super().__init__(
-            "konachan", f"https://konachan.com/post.json?limit={POST_AMOUNT}"
+            "konachan", f"https://konachan.com/post.json?api_key={APIKEY}&user_id={APIID}"
         )
 
-    def get_data(self, add_tags, max_pages, id=""):
+    def get_data(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
         if id:
             add_tags = ""
         self.booru_url = (
-            f"{self.booru_url}&page={random.randint(0,max_pages)}{id}{add_tags}"
+            f"{self.booru_url}&limit={posts_per_page}&page={rpage}{id}{add_tags}"
         )
-        res = requests.get(self.booru_url)
+        
+        # Troubleshooting line to check the URL being requested
+        #print(self.booru_url)
+
+        res = sess.get(self.booru_url)
         data = res.json()
         return {"post": data}
 
-    def get_post(self, add_tags, max_pages, id=""):
+    def get_post(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
         raise Exception("Konachan does not support post IDs")
-
 
 class Yandere(Booru):
     def __init__(self):
-        super().__init__("yande.re", f"https://yande.re/post.json?limit={POST_AMOUNT}")
+        APIKEY=userkeys.get('yande.re_key', '')
+        APIID=userkeys.get('yande.re_id', '')
+        super().__init__("yande.re", f"https://yande.re/post.json?api_key={APIKEY}&user_id={APIID}")
 
-    def get_data(self, add_tags, max_pages, id=""):
+    def get_data(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
         if id:
             add_tags = ""
         self.booru_url = (
-            f"{self.booru_url}&page={random.randint(0,max_pages)}{id}{add_tags}"
+            f"{self.booru_url}&limit={posts_per_page}&page={rpage}{id}{add_tags}"
         )
-        res = requests.get(self.booru_url)
+
+        # Troubleshooting line to check the URL being requested
+        #print(self.booru_url)
+
+        res = sess.get(self.booru_url)
         data = res.json()
         return {"post": data}
 
-    def get_post(self, add_tags, max_pages, id=""):
+    def get_post(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
         raise Exception("Yande.re does not support post IDs")
 
-
 class AIBooru(Booru):
-
     def __init__(self):
+        APIKEY=userkeys.get('aibooru_key', '')
+        APIID=userkeys.get('aibooru_id', '')
         super().__init__(
-            "AIBooru", f"https://aibooru.online/posts.json?limit={POST_AMOUNT}"
+            "AIBooru", f"https://aibooru.online/posts.json?api_key={APIKEY}&login={APIID}"
         )
 
-    def get_data(self, add_tags, max_pages, id=""):
+    def get_data(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
         if id:
             add_tags = ""
         self.booru_url = (
-            f"{self.booru_url}&page={random.randint(0,max_pages)}{id}{add_tags}"
+            f"{self.booru_url}&limit={posts_per_page}&page={rpage}{id}{add_tags}"
         )
-        res = requests.get(self.booru_url)
+
+        # Troubleshooting line to check the URL being requested
+        #print(self.booru_url)
+
+        res = sess.get(self.booru_url)
         data = res.json()
         for post in data:
             post["tags"] = post["tag_string"]
         return {"post": data}
 
-    def get_post(self, add_tags, max_pages, id=""):
+    def get_post(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
         raise Exception("AIBooru does not support post IDs")
-
 
 class Danbooru(Booru):
     def __init__(self):
+        APIKEY=userkeys.get('danbooru_key', '')
+        APIID=userkeys.get('danbooru_id', '')
         super().__init__(
-            "danbooru", f"https://danbooru.donmai.us/posts.json?limit={POST_AMOUNT}"
+            "danbooru", f"https://danbooru.donmai.us/posts.json?api_key={APIKEY}&login={APIID}"
         )
 
-    def get_data(self, add_tags, max_pages, id=""):
+    def get_data(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
         if id:
             add_tags = ""
         self.booru_url = (
-            f"{self.booru_url}&page={random.randint(0,max_pages)}{id}{add_tags}"
+            f"{self.booru_url}&limit={posts_per_page}&page={rpage}{id}{add_tags}"
         )
-        res = requests.get(self.booru_url, headers=self.headers)
+
+        # Troubleshooting line to check the URL being requested
+        #print(self.booru_url)
+
+        res = sess.get(self.booru_url)
         data = res.json()
         for post in data:
             post["tags"] = post["tag_string"]
         return {"post": data}
 
-    def get_post(self, add_tags, max_pages, id=""):
+    def get_post(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
         self.booru_url = f"https://danbooru.donmai.us/posts/{id}.json"
-        res = requests.get(self.booru_url, headers=self.headers)
+        res = sess.get(self.booru_url)
         data = res.json()
         data["tags"] = data["tag_string"]
         data = {"post": [data]}
         return data
 
-
 class e621(Booru):
     def __init__(self):
-        super().__init__("danbooru", f"https://e621.net/posts.json?limit={POST_AMOUNT}")
+        APIKEY=userkeys.get('e621_key', '')
+        APIID=userkeys.get('e621_id', '')
+        super().__init__("danbooru", f"https://e621.net/posts.json?api_key={APIKEY}&login={APIID}")
 
-    def get_data(self, add_tags, max_pages, id=""):
+    def get_data(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
         if id:
             add_tags = ""
         self.booru_url = (
-            f"{self.booru_url}&page={random.randint(0,max_pages)}{id}{add_tags}"
+            f"{self.booru_url}&limit={posts_per_page}&page={rpage}{id}{add_tags}"
         )
-        res = requests.get(self.booru_url, headers=self.headers)
+
+        # Troubleshooting line to check the URL being requested
+        #print(self.booru_url)
+
+        res = sess.get(self.booru_url)
         data = res.json()["posts"]
         for post in data:
             temp_tags = []
@@ -233,11 +322,11 @@ class e621(Booru):
                 temp_tags.extend(post["tags"][sublevel])
             post["tags"] = " ".join(temp_tags)
             post["score"] = post["score"]["total"]
+            post["file_url"] = post["file"]["url"]
         return {"post": data}
 
-    def get_post(self, add_tags, max_pages, id=""):
-        self.get_data(add_tags, max_pages, "&id=" + id)
-
+    def get_post(self, add_tags, max_pages, posts_per_page, rpage, seed, id=""):
+        self.get_data(add_tags, max_pages, posts_per_page, 0, seed, "&id=" + id)
 
 BOORUS = [
     "gelbooru",
@@ -302,7 +391,6 @@ RATINGS = {
     "gelbooru": RATING_TYPES["single"],
 }
 
-
 class Ranbooru:
     def __init__(self):
         self.last_prompt = ""
@@ -324,6 +412,24 @@ class Ranbooru:
                         "display": "number",
                     },
                 ),
+                "posts_per_page": (
+                    "INT",
+                    {
+                        "default": 1,
+                        "min": 1,
+                        "max": 100,
+                        "step": 1,
+                        "display": "number",
+                    },
+                ),
+		"seed": (
+                    "INT",
+                    {
+                         "default": 0,
+                         "min": 0, 
+                         "max": 0xffffffffffffffff
+                     }
+                ),
                 "tags": ("STRING", {"multiline": False, "default": ""}),
                 "rating": (
                     ["All", "Safe", "Sensitive", "Questionable", "Explicit"],
@@ -341,6 +447,12 @@ class Ranbooru:
     RETURN_TYPES = (
         "STRING",
         "IMAGE",
+        "STRING",
+    )
+    RETURN_NAMES = (
+        "TAGS",
+        "IMAGE",
+        "IMAGE_URL",
     )
     FUNCTION = "ranbooru"
     CATEGORY = "Ranbooru Nodes"
@@ -353,6 +465,8 @@ class Ranbooru:
         self,
         booru,
         max_pages,
+        posts_per_page,
+        seed,
         tags,
         rating,
         change_color,
@@ -446,8 +560,13 @@ class Ranbooru:
                 add_tags = "&tags=-animated"
             if rating != "All":
                 add_tags += f"+rating:{RATINGS[booru][rating]}"
-            data = api_url.get_data(add_tags, max_pages)
-            random_post = data["post"][random.randint(0, len(data["post"]) - 1)]
+            
+            #Using the max page setting and seed, pull a random page
+            rpage = random_num(0, max_pages, seed)
+            data = api_url.get_data(add_tags, max_pages, posts_per_page, rpage, seed)
+            rpost = random_num(0, len(data["post"]) - 1, seed)
+
+            random_post = data["post"][rpost]
             clean_tags = random_post["tags"].replace("(", "\\(").replace(")", "\\)")
             temp_tags = clean_tags.split(" ")
             temp_tags = random.sample(temp_tags, len(temp_tags))
@@ -460,6 +579,8 @@ class Ranbooru:
             final_tags = ",".join([tag for tag in temp_tags if tag not in bad_tags])
             self.last_prompt = final_tags
             self.file_url = random_post["file_url"]
+
+            #Print the referencing and image URL to console for logging/reference
             print(api_url.booru_url)
             print(self.file_url)
 
@@ -469,25 +590,30 @@ class Ranbooru:
                     img = self.image
             else:
                 img_url = random_post["file_url"]
-                res = requests.get(img_url)
-                # read the image in PIL
-                img = Image.open(io.BytesIO(res.content))
-                # rgb
-                if img.mode != "RGB":
-                    img = img.convert("RGB")
-                self.file_url = img_url
-                self.image = img
+                res = sess.get(img_url, headers={'referer': api_url.booru_url})
+                #Log Errors to console
+                if res.status_code != 200:
+                	print(f"Error in image download: HTTP Code {res.status_code}")
+                else:
+                        # read the image in PIL
+                        img = Image.open(io.BytesIO(res.content))
+                        # rgb
+                        if img.mode != "RGB":
+                            img = img.convert("RGB")
+                        self.file_url = img_url
+                        self.image = img
             return (
                 final_tags,
                 pil2tensor(img),
+                self.file_url,
             )
         else:
             empty_image = Image.new("RGB", (1, 1), color=(0, 0, 0))
             return (
                 final_tags,
                 pil2tensor(empty_image),
+                self.file_url,
             )
-
 
 class RanbooruURL:
     """Uses an url or an ID to get a post from a booru"""
@@ -510,6 +636,12 @@ class RanbooruURL:
     RETURN_TYPES = (
         "STRING",
         "IMAGE",
+        "STRING",
+    )
+    RETURN_NAMES = (
+        "TAGS",
+        "IMAGE",
+        "IMAGE_URL",
     )
     FUNCTION = "ranbooru_url"
     CATEGORY = "Ranbooru Nodes"
@@ -601,7 +733,7 @@ class RanbooruURL:
             else:
                 raise Exception("Invalid URL")
 
-        data = api_url.get_data(add_tags, 100)
+        data = api_url.get_data(add_tags, 100, 100, 0, 0)
         random_post = data["post"][0]
         clean_tags = random_post["tags"].replace("(", "\\(").replace(")", "\\)")
         temp_tags = clean_tags.split(" ")
@@ -612,7 +744,7 @@ class RanbooruURL:
 
         if return_picture:
             img_url = random_post["file_url"]
-            res = requests.get(img_url)
+            res = sess.get(img_url, headers={'referer': api_url.booru_url})
             # read the image in PIL
             img = Image.open(io.BytesIO(res.content))
             # rgb
@@ -623,14 +755,15 @@ class RanbooruURL:
             return (
                 final_tags,
                 pil2tensor(img),
+                self.file_url,
             )
         else:
             empty_image = Image.new("RGB", (1, 1), color=(0, 0, 0))
             return (
                 final_tags,
                 pil2tensor(empty_image),
+                self.file_url,
             )
-
 
 class PromptRemove:
     # given a prompt, split it by separator and remove the words in the list based on the input list separated by comma
@@ -664,7 +797,6 @@ class PromptRemove:
             else:
                 tags = [tag for tag in tags if tag != bad_tag]
         return (separator.join(tags),)
-
 
 class RandomPicturePath:
     # given a path, return a random picture (png,jpg,jpeg) from that path as a string
@@ -709,7 +841,6 @@ class RandomPicturePath:
             self.last_path = random_file
             return (random_file,)
 
-
 class PromptMix:
     def __init__(self):
         self.last_prompt = ""
@@ -746,7 +877,6 @@ class PromptMix:
             self.last_prompt = delimiter.join(words)
             return (self.last_prompt,)
 
-
 class PromptLimit:
     def __init__(self):
         pass
@@ -771,7 +901,6 @@ class PromptLimit:
         if limit > 0:
             words = words[:limit]
         return (separator.join(words),)
-
 
 class PromptRandomWeight:
     def __init__(self):
@@ -832,7 +961,6 @@ class PromptRandomWeight:
                     f"({words[i]}:{round(random.uniform(min_weight_value,max_weight_value),1)})"
                 )
         return (separator.join(words),)
-
 
 class PromptBackground:
     @classmethod
@@ -895,7 +1023,6 @@ class PromptBackground:
 
         return (final_prompt,)
 
-
 class LockSeed:
     """Returns a random seed and stores it in self.prev_seed. If user selects 'use_last' it will return the same seed as before."""
 
@@ -926,7 +1053,6 @@ class LockSeed:
             self.prev_seed = seed
             return (seed,)
 
-
 class TimestampFileName:
     """Given a filename input, returns a filename with a timestamp appended to it."""
 
@@ -953,7 +1079,6 @@ class TimestampFileName:
         now = datetime.datetime.now()
         timestamp = now.strftime("%Y%m%d_%H%M%S")
         return (f"{filename}_{timestamp}",)
-
 
 # A dictionary that contains all nodes you want to export with their names
 # NOTE: names should be globally unique
