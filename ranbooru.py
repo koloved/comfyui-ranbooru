@@ -651,7 +651,8 @@ class Ranbooru:
         api_url = ""
         random_post = {"preview_url": ""}
         data = {"post": [{"tags": ""}]}
-        if use_last_prompt and self.last_prompt != "":
+        cached = use_last_prompt and self.last_prompt != ""
+        if cached:
             final_tags = self.last_prompt
             img_url = self.file_url
         else:
@@ -689,7 +690,7 @@ class Ranbooru:
             print(self.file_url)
 
         if return_picture:
-            if use_last_prompt:
+            if cached:
                 if self.file_url == img_url and self.image != None:
                     img = self.image
             else:
